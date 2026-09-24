@@ -1,25 +1,25 @@
 version = 1
 revision = 3
-requires-python = ">=3.11, <3.14"
+requires-python = ">=3.11"
 
 [[package]]
 name = "collab-cluster-utils"
 version = "0.1.0"
 source = { editable = "." }
-dependencies = [
-    { name = "libtorrent" },
-]
 
 [package.dev-dependencies]
 dev = [
+    { name = "libtorrent", marker = "python_full_version < '3.14'" },
     { name = "pytest" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "libtorrent", specifier = ">=2.0" }]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.3" }]
+dev = [
+    { name = "libtorrent", marker = "python_full_version < '3.14'", specifier = ">=2.1" },
+    { name = "pytest", specifier = ">=8.3" },
+]
 
 [[package]]
 name = "colorama"

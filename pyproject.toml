@@ -4,15 +4,14 @@ version = "0.1.0"
 description = "Independent utilities supporting the collab-cluster project"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
-# Upper-bounded because libtorrent only ships wheels up to cp313 (no sdist to build from).
-requires-python = ">=3.11,<3.14"
-dependencies = [
-    "libtorrent>=2.0",
-]
+requires-python = ">=3.11"
+dependencies = []
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    # Only for the end-to-end web seed test; no wheels beyond cp313 yet.
+    "libtorrent>=2.1; python_version < '3.14'",
 ]
 
 [project.scripts]

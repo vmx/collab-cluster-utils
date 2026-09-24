@@ -4,57 +4,81 @@ import os
 import urllib.error
 import urllib.request
 
-from collab_cluster_utils.publisher.http_server import serve
-from collab_cluster_utils.publisher.seed import SeedStore
+import pytest
 
-from .test_seed import _build_sample_torrent
+from collab_cluster_utils.publisher.http_server import _parse_range, serve
 
-
-def _start(tmp_path):
-    watch_dir = tmp_path / "watch"
-    item_dir = watch_dir / "item-a"
-    torrent_path = watch_dir / "item-a.torrent"
-    content = os.urandom(4096)
-    _build_sample_torrent(item_dir, torrent_path, content)
-
-    store = SeedStore("127.0.0.1", 0)
-    store.sync({torrent_path})
-    info_hash = store.info_hashes()[0]
-
-    server = serve(store, "127.0.0.1", 0)
-    base = f"http://127.0.0.1:{server.server_address[1]}"
-    return server, base, info_hash, torrent_path.read_bytes()
+CONTENT = os.urandom(10_000)
 
 
-def test_serves_a_known_torrent(tmp_path):
-    server, base, info_hash, expected = _start(tmp_path)
+@pytest.fixture
+def base(tmp_path):
+    (tmp_path / "item").mkdir()
+    (tmp_path / "item" / "data.bin").write_bytes(CONTENT)
+    (tmp_path / "empty.bin").write_bytes(b"")
+    server = serve(tmp_path, "127.0.0.1", 0)
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+def get(url, range_header=None):
+    request = urllib.request.Request(url, headers={"Range": range_header} if range_header else {})
+    with urllib.request.urlopen(request, timeout=5) as r:
+        return r.status, dict(r.headers), r.read()
+
+
+def status_of(url, range_header=None):
     try:
-        with urllib.request.urlopen(f"{base}/dataset/{info_hash}.torrent", timeout=5) as r:
-            assert r.read() == expected
-    finally:
-        server.shutdown()
+        return get(url, range_header)[0]
+    except urllib.error.HTTPError as exc:
+        return exc.code
 
 
-def test_404s_an_unknown_hash(tmp_path):
-    server, base, _info_hash, _expected = _start(tmp_path)
-    try:
-        unknown = "0" * 64
-        try:
-            urllib.request.urlopen(f"{base}/dataset/{unknown}.torrent", timeout=5)
-            assert False, "expected a 404"
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 404
-    finally:
-        server.shutdown()
+def test_whole_file(base):
+    status, headers, body = get(f"{base}/item/data.bin")
+    assert (status, body) == (200, CONTENT)
+    assert headers["Accept-Ranges"] == "bytes"
 
 
-def test_404s_a_malformed_path(tmp_path):
-    server, base, _info_hash, _expected = _start(tmp_path)
-    try:
-        try:
-            urllib.request.urlopen(f"{base}/not-a-dataset-route", timeout=5)
-            assert False, "expected a 404"
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 404
-    finally:
-        server.shutdown()
+def test_range(base):
+    status, headers, body = get(f"{base}/item/data.bin", "bytes=100-199")
+    assert (status, body) == (206, CONTENT[100:200])
+    assert headers["Content-Range"] == f"bytes 100-199/{len(CONTENT)}"
+
+
+def test_open_ended_and_overlong_ranges_stop_at_the_end(base):
+    assert get(f"{base}/item/data.bin", "bytes=9990-")[2] == CONTENT[9990:]
+    assert get(f"{base}/item/data.bin", "bytes=9990-99999")[2] == CONTENT[9990:]
+
+
+def test_suffix_range(base):
+    assert get(f"{base}/item/data.bin", "bytes=-10")[2] == CONTENT[-10:]
+
+
+def test_unsatisfiable_range(base):
+    assert status_of(f"{base}/item/data.bin", "bytes=10000-") == 416
+
+
+def test_empty_file(base):
+    assert get(f"{base}/empty.bin")[:1] == (200,)
+
+
+@pytest.mark.parametrize("path", ["/item", "/item/", "/", "/missing.bin", "/../etc/passwd"])
+def test_only_files_inside_the_directory(base, path):
+    assert status_of(base + path) == 404
+
+
+@pytest.mark.parametrize("header, size, expected", [
+    ("bytes=0-0", 10, (0, 0)),
+    ("bytes=5-", 10, (5, 9)),
+    ("bytes=-3", 10, (7, 9)),
+    ("bytes=-30", 10, (0, 9)),
+    ("bytes=10-", 10, None),
+    ("bytes=5-4", 10, None),
+    ("bytes=-0", 10, None),
+    ("bytes=-", 10, None),
+    ("bytes=0-1,4-5", 10, None),
+    ("items=0-1", 10, None),
+])
+def test_parse_range(header, size, expected):
+    assert _parse_range(header, size) == expected

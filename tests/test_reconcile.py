@@ -1,167 +1,126 @@
-"""Unit tests for the sync/notify loop, decoupled from real libtorrent and
-real HTTP -- seed.py's own correctness is covered by test_seed.py; this is
-only about tick()'s decisions.
-"""
+"""reconcile.tick()'s decisions, with notify() replaced -- no real HTTP."""
 
 from __future__ import annotations
 
+import io
 import urllib.error
+
+import pytest
 
 from collab_cluster_utils.publisher import reconcile
 from collab_cluster_utils.publisher.state import State
 
+from .helpers import write_torrent
 
-class FakeStore:
-    """Stands in for SeedStore. sync() reports whichever of the given paths
-    it hasn't seen before as added, and any previously-seen path missing
-    from the given set as dropped -- the same contract SeedStore.sync()
-    has, keyed by filename stem instead of a real info-hash."""
-
-    def __init__(self):
-        self.sync_calls = []
-        self._tracked: set[str] = set()
-
-    def sync(self, torrent_paths):
-        self.sync_calls.append(set(torrent_paths))
-        current = {p.stem for p in torrent_paths}
-        added = current - self._tracked
-        dropped = self._tracked - current
-        self._tracked = current
-        return added, dropped
-
-    def info_hashes(self):
-        return list(self._tracked)
+NODE = "10.0.0.5:8001"
+BASE = "http://10.0.0.9:8090/"
 
 
-def _touch(*paths):
-    for path in paths:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"")
-
-
-def _tick(store, state, watch_dir, calls, peer, monkeypatch):
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    watch_dir = tmp_path / "watch"
+    watch_dir.mkdir()
+    calls = []
     monkeypatch.setattr(reconcile, "notify",
-                         lambda node, info_hash, p: calls.append((node, info_hash, p)))
-    reconcile.tick(store, state, watch_dir, "10.0.0.5:8001", peer)
+                        lambda node, info_hash, torrent_url, web_seed:
+                        calls.append((node, info_hash, torrent_url, web_seed)))
+    return watch_dir, State(tmp_path / "state.sqlite3"), calls
 
 
-def test_notifies_new_items_once(tmp_path, monkeypatch):
-    watch_dir = tmp_path / "watch"
-    _touch(watch_dir / "item-a.torrent", watch_dir / "item-b.torrent")
-
-    store = FakeStore()
-    state = State(tmp_path / "state.sqlite3")
-    peer = {"ip": "10.0.0.1", "bt": 6890, "http": 8090}
-    calls = []
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
-
-    assert sorted(calls) == [
-        ("10.0.0.5:8001", "item-a", peer),
-        ("10.0.0.5:8001", "item-b", peer),
-    ]
-    assert state.is_notified("item-a")
-    assert state.is_notified("item-b")
+def tick(watch_dir, state):
+    reconcile.tick(state, watch_dir, NODE, BASE)
 
 
-def test_does_not_renotify_unchanged_items(tmp_path, monkeypatch):
-    """A settled directory should produce no notify traffic at all."""
-    watch_dir = tmp_path / "watch"
-    _touch(watch_dir / "item-a.torrent")
+def test_notifies_where_to_fetch_the_torrent_and_the_data(env):
+    watch_dir, state, calls = env
+    single = write_torrent(watch_dir / "item-a.torrent", "x", {"image.tif": 5})
+    multi = write_torrent(watch_dir / "item-b.torrent", "item-b", {"image.tif": 5, "meta.json": 7})
+    tick(watch_dir, state)
+    assert sorted(calls) == sorted([
+        (NODE, single, BASE + "item-a.torrent", BASE + "item-a/"),
+        (NODE, multi, BASE + "item-b.torrent", BASE),
+    ])
 
-    store = FakeStore()
-    state = State(tmp_path / "state.sqlite3")
-    peer = {"ip": "10.0.0.1", "bt": 6890, "http": 8090}
-    calls = []
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
 
+def test_a_settled_directory_sends_nothing(env):
+    watch_dir, state, calls = env
+    write_torrent(watch_dir / "item-a.torrent", "x", {"image.tif": 5})
+    tick(watch_dir, state)
+    tick(watch_dir, state)
     assert len(calls) == 1
 
 
-def test_forgets_items_removed_from_disk(tmp_path, monkeypatch):
-    watch_dir = tmp_path / "watch"
-    a = watch_dir / "item-a.torrent"
-    _touch(a)
-
-    store = FakeStore()
-    state = State(tmp_path / "state.sqlite3")
-    peer = {"ip": "10.0.0.1", "bt": 6890, "http": 8090}
-    calls = []
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
-    assert state.is_notified("item-a")
-
-    a.unlink()
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
-    assert not state.is_notified("item-a")
+def test_a_restart_does_not_resend(env, tmp_path):
+    watch_dir, state, calls = env
+    write_torrent(watch_dir / "item-a.torrent", "x", {"image.tif": 5})
+    tick(watch_dir, state)
+    tick(watch_dir, State(tmp_path / "state.sqlite3"))
+    assert len(calls) == 1
 
 
-def test_a_restart_shaped_replay_does_not_renotify(tmp_path, monkeypatch):
-    """A fresh SeedStore reports everything currently resident as 'added'
-    (it has nothing tracked yet) -- the durable ledger is what stops that
-    from turning into a repeat /add for everything on disk."""
-    watch_dir = tmp_path / "watch"
-    _touch(watch_dir / "item-a.torrent", watch_dir / "item-b.torrent")
-
-    db_path = tmp_path / "state.sqlite3"
-    store = FakeStore()
-    state = State(db_path)
-    peer = {"ip": "10.0.0.1", "bt": 6890, "http": 8090}
-    calls = []
-    _tick(store, state, watch_dir, calls, peer, monkeypatch)
-    assert len(calls) == 2
-
-    # "Restart": a fresh store (nothing tracked) but the same durable ledger.
-    fresh_store = FakeStore()
-    calls.clear()
-    _tick(fresh_store, state, watch_dir, calls, peer, monkeypatch)
-    assert calls == []
+def test_forgets_what_left_the_directory(env):
+    watch_dir, state, calls = env
+    path = watch_dir / "item-a.torrent"
+    write_torrent(path, "x", {"image.tif": 5})
+    tick(watch_dir, state)
+    path.unlink()
+    tick(watch_dir, state)
+    assert state.names() == set()
 
 
-def test_a_failed_notify_is_retried_next_tick_and_does_not_block_others(tmp_path, monkeypatch):
-    watch_dir = tmp_path / "watch"
-    _touch(watch_dir / "item-a.torrent", watch_dir / "item-b.torrent")
-
-    store = FakeStore()
-    state = State(tmp_path / "state.sqlite3")
-    peer = {"ip": "10.0.0.1", "bt": 6890, "http": 8090}
-
-    attempts = []
-    calls = []
-
-    def flaky_notify(node, info_hash, p):
-        attempts.append(info_hash)
-        if info_hash == "item-a" and attempts.count("item-a") == 1:
-            raise urllib.error.HTTPError("http://node/add", 500, "boom", None, None)
-        calls.append(info_hash)
-
-    monkeypatch.setattr(reconcile, "notify", flaky_notify)
-    reconcile.tick(store, state, watch_dir, "10.0.0.5:8001", peer)
-    assert calls == ["item-b"]
-    assert not state.is_notified("item-a")
-    assert state.is_notified("item-b")
-
-    reconcile.tick(store, state, watch_dir, "10.0.0.5:8001", peer)
-    assert sorted(calls) == ["item-a", "item-b"]
-    assert attempts.count("item-a") == 2
-    assert attempts.count("item-b") == 1
+def test_skips_unusable_torrents_and_carries_on(env):
+    watch_dir, state, calls = env
+    (watch_dir / "broken.torrent").write_bytes(b"garbage")
+    write_torrent(watch_dir / "renamed.torrent", "other-name", {"image.tif": 5, "meta.json": 7})
+    good = write_torrent(watch_dir / "item-a.torrent", "x", {"image.tif": 5})
+    tick(watch_dir, state)
+    assert [c[1] for c in calls] == [good]
+    assert state.names() == {"item-a.torrent"}
 
 
-def test_an_unreachable_node_ends_the_pass(tmp_path, monkeypatch):
-    watch_dir = tmp_path / "watch"
-    _touch(*(watch_dir / f"item-{i}.torrent" for i in range(5)))
-
-    store = FakeStore()
-    state = State(tmp_path / "state.sqlite3")
-    peer = {"ip": "10.0.0.1", "bt": 6890, "http": 8090}
+def test_a_rejected_item_is_retried_and_does_not_block_others(env, monkeypatch):
+    watch_dir, state, _ = env
+    write_torrent(watch_dir / "item-a.torrent", "x", {"image.tif": 5})
+    write_torrent(watch_dir / "item-b.torrent", "x", {"image.tif": 5})
     attempts = []
 
-    def unreachable(node, info_hash, p):
-        attempts.append(info_hash)
+    def flaky(node, info_hash, torrent_url, web_seed):
+        attempts.append(torrent_url)
+        if torrent_url.endswith("item-a.torrent") and len(attempts) == 1:
+            raise urllib.error.HTTPError(torrent_url, 500, "boom", None, None)
+
+    monkeypatch.setattr(reconcile, "notify", flaky)
+    tick(watch_dir, state)
+    assert state.names() == {"item-b.torrent"}
+    tick(watch_dir, state)
+    assert state.names() == {"item-a.torrent", "item-b.torrent"}
+    assert len(attempts) == 3
+
+
+def test_a_rejection_logs_the_nodes_error(env, monkeypatch, caplog):
+    watch_dir, state, _ = env
+    write_torrent(watch_dir / "item-a.torrent", "x", {"image.tif": 5})
+
+    def reject(node, info_hash, torrent_url, web_seed):
+        raise urllib.error.HTTPError(torrent_url, 404, "Not Found", None,
+                                     io.BytesIO(b'{"error": "unknown dataset"}'))
+
+    monkeypatch.setattr(reconcile, "notify", reject)
+    tick(watch_dir, state)
+    assert 'HTTP 404 {"error": "unknown dataset"}' in caplog.text
+
+
+def test_an_unreachable_node_ends_the_pass(env, monkeypatch):
+    watch_dir, state, _ = env
+    for i in range(5):
+        write_torrent(watch_dir / f"item-{i}.torrent", "x", {"image.tif": 5})
+    attempts = []
+
+    def unreachable(*args):
+        attempts.append(args)
         raise urllib.error.URLError(ConnectionRefusedError())
 
     monkeypatch.setattr(reconcile, "notify", unreachable)
-    reconcile.tick(store, state, watch_dir, "10.0.0.5:8001", peer)
-
+    tick(watch_dir, state)
     assert len(attempts) == 1
-    assert not any(state.is_notified(f"item-{i}") for i in range(5))
+    assert state.names() == set()

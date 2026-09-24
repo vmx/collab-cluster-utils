@@ -1,15 +1,14 @@
-"""SQLite-backed ledger of which datasets have already been notified to the
-target node.
-
-A plain point-lookup table stays cheap regardless of size, which is what
-lets reconcile.py check it per item without that cost growing over time;
-forget() keeps it roughly the size of what's currently on disk rather than
-accumulating forever.
+"""SQLite-backed ledger of which .torrent files have already been notified to
+the target node, keyed by file name so new ones are found without opening
+anything. Durable so that a restart doesn't re-offer everything still on
+disk -- including datasets someone has since removed from the node on
+purpose.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
 
 
@@ -20,27 +19,26 @@ class State:
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS notified (
-                info_hash TEXT PRIMARY KEY,
+                name TEXT PRIMARY KEY,
+                info_hash TEXT NOT NULL,
                 notified_at TEXT NOT NULL
             )
             """
         )
         self._conn.commit()
 
-    def is_notified(self, info_hash: str) -> bool:
-        row = self._conn.execute(
-            "SELECT 1 FROM notified WHERE info_hash = ?", (info_hash,)).fetchone()
-        return row is not None
+    def names(self) -> set[str]:
+        return {row[0] for row in self._conn.execute("SELECT name FROM notified")}
 
-    def mark_notified(self, info_hash: str, notified_at: str) -> None:
+    def mark_notified(self, name: str, info_hash: str, notified_at: str) -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO notified (info_hash, notified_at) VALUES (?, ?)",
-            (info_hash, notified_at),
+            "INSERT OR REPLACE INTO notified (name, info_hash, notified_at) VALUES (?, ?, ?)",
+            (name, info_hash, notified_at),
         )
         self._conn.commit()
 
-    def forget(self, info_hash: str) -> None:
-        self._conn.execute("DELETE FROM notified WHERE info_hash = ?", (info_hash,))
+    def forget(self, names: Iterable[str]) -> None:
+        self._conn.executemany("DELETE FROM notified WHERE name = ?", ((n,) for n in names))
         self._conn.commit()
 
     def close(self) -> None:

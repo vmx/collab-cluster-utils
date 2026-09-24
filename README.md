@@ -14,27 +14,26 @@ configured node about each.
 [collab-cluster-torrentizer]: ../collab-cluster-torrentizer
 [collab-cluster-node]: ../collab-cluster-experiment
 
-It's a bare BitTorrent peer, not a collab-cluster node -- it never joins the
-swarm, no beacon, no discovery. It holds a seed-only libtorrent session for
-whatever's currently in the watched directory and answers one HTTP route,
-`GET /dataset/<info_hash>.torrent` (the same route a node answers for other
-nodes), so the target node's existing `/add` can fetch from it like any
-peer.
-
-Every 10 seconds it rescans the directory and, for anything new, calls:
+It serves the watched directory read-only over HTTP and, every 10 seconds,
+calls this on the target node for each `.torrent` it hasn't seen yet:
 
 ```
-POST /add {"info_hash": ..., "peer": {"ip": ..., "bt": ..., "http": ...}}
+POST /add {"info_hash": ..., "torrent_url": ..., "web_seed": ...}
 ```
 
-The node does the rest: fetches the `.torrent` over HTTP, the data over
-BitTorrent, and verifies it. "Already notified" is tracked in a small local
-sqlite ledger rather than by asking the node, and rescans never re-parse a
-`.torrent` already seen, so cost stays proportional to what's new, not to
-total history -- built for tens of thousands of items a day, indefinitely.
-Both the seed session and the ledger forget an item once it's gone from
-disk; nothing actively evicts an item early just because the target node
-finished taking it.
+The node does the rest: fetches the `.torrent` from `torrent_url`, downloads
+the data from `web_seed` (a BEP 19 web seed -- plain HTTP, with every piece
+checked against the torrent's hashes), and from then on holds it like any
+other dataset. The publisher runs no BitTorrent itself and needs nothing
+beyond the Python standard library. The node needs libtorrent 2.1.2 or
+later: older versions fail piece hashes at file boundaries when a v2
+torrent has more than one file.
+
+"Already notified" is tracked in a small local sqlite ledger, keyed by file
+name, so a tick costs one directory listing plus parsing whatever is new --
+built for tens of thousands of items a day, indefinitely. The ledger is
+durable so a restart doesn't re-offer items someone has since removed from
+the node; an entry is forgotten once its file leaves the directory.
 
 Spreading a copy to further nodes is a separate, already-solved concern
 (`control.py add`) -- not this tool's job.
@@ -48,7 +47,7 @@ Spreading a copy to further nodes is a separate, already-solved concern
 
 Config via environment variables (`Config` in
 `src/collab_cluster_utils/publisher/config.py`): `WATCH_DIR`, `TARGET_NODE`,
-`ADVERTISE_HOST` (required); `BIND_HOST`, `BT_PORT`, `HTTP_PORT`,
+`ADVERTISE_HOST` (required); `BIND_HOST`, `HTTP_PORT`,
 `STATE_DB_PATH` (optional, defaulted).
 
 ### Background service
@@ -69,18 +68,19 @@ collab-cluster-torrentizer's `deploy/service.sh`.
 > uv run pytest
 ```
 
-`test_seed.py` runs a real BitTorrent transfer between two local libtorrent
-sessions; the rest are unit tests against fakes.
+`test_web_seed.py` has libtorrent download items from the publisher's HTTP
+server as a web seed; its multi-file case is skipped on libtorrent older than
+2.1.2. The rest are unit tests without libtorrent.
 
 ### Files
 
 | File | Role |
 |---|---|
 | `config.py` | `Config.from_env()`. |
-| `seed.py` | Seed-only libtorrent session + registry of what's servable. |
-| `http_server.py` | `GET /dataset/<hash>.torrent`, reading `seed.py`'s registry. |
+| `http_server.py` | Read-only file server over the watched directory, with byte ranges. |
+| `torrent.py` | A `.torrent`'s v2 info-hash and shape, without libtorrent. |
 | `state.py` | sqlite ledger of what's been notified. |
-| `reconcile.py` | Sync the seed store, notify the target node. |
+| `reconcile.py` | Find new `.torrent` files, notify the target node. |
 | `cli.py` | Wires it together, loops. |
 
 License
