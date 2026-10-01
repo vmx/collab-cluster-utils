@@ -1,0 +1,23 @@
+# systemd --user unit for running the data manager in a collab-cluster-node
+# container on Incus. The collab-cluster profile (collab-cluster-experiment's
+# incus/collab-cluster.yaml) clones this repo to ~/collab-cluster-utils and
+# copies this file into ~/.config/systemd/user/; it is only enabled where a
+# policy has been put in place (data-manager-policy.toml in the checkout).
+#
+# Needs nothing beyond the standard library, so it runs straight from the
+# checkout with the system python3 -- no venv. For a host with uv, use
+# ../service.sh instead.
+
+[Unit]
+Description=collab-cluster-data-manager (what the local swarm node holds)
+
+[Service]
+# The policy and data-manager-cursors.json live here too (both gitignored).
+WorkingDirectory=%h/collab-cluster-utils
+Environment=PYTHONPATH=src
+ExecStart=python3 -m collab_cluster_utils.data_manager.cli
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

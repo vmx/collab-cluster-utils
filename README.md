@@ -192,6 +192,25 @@ startup -- restart to apply a change. `BACKFILL=1` turns on backfill (see
 above). As a background service:
 `./deploy/service.sh data-manager install` (same mechanics as above).
 
+### In a node's Incus container
+
+The collab-cluster profile ([collab-cluster-node]'s `incus/collab-cluster.yaml`)
+clones this repo to `/home/debian/collab-cluster-utils` and installs
+`deploy/incus/collab-cluster-data-manager.service`. That unit runs the manager
+with the system `python3` straight from the checkout -- it needs nothing
+beyond the standard library, so no uv or venv. Give a node a policy when
+creating it and the unit is enabled:
+
+```console
+> ./incus/new-container.sh node node0 --policy my-policy.toml
+```
+
+Re-running it with a changed policy pushes it and restarts the manager. To do
+it by hand, push the policy to
+`/home/debian/collab-cluster-utils/data-manager-policy.toml` (owned by
+`debian`) and `systemctl --user enable --now collab-cluster-data-manager` as
+`debian`.
+
 ### Files
 
 | File | Role |
