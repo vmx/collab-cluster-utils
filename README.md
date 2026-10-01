@@ -54,15 +54,155 @@ Config via environment variables (`Config` in
 
 ```console
 > cp deploy/.env.example deploy/.env   # then edit
-> ./deploy/service.sh install
-> ./deploy/service.sh logs
-> ./deploy/service.sh uninstall
+> ./deploy/service.sh publisher install
+> ./deploy/service.sh publisher logs
+> ./deploy/service.sh publisher uninstall
 ```
 
 Persistent `systemd --user` unit, same mechanics as
 collab-cluster-torrentizer's `deploy/service.sh`.
 
-### Tests
+### Files
+
+| File | Role |
+|---|---|
+| `config.py` | `Config.from_env()`. |
+| `http_server.py` | Read-only file server over the watched directory, with byte ranges. |
+| `torrent.py` | A `.torrent`'s v2 info-hash and shape (bencode in `../bencode.py`). |
+| `state.py` | sqlite ledger of what's been notified. |
+| `reconcile.py` | Find new `.torrent` files, notify the target node. |
+| `cli.py` | Wires it together, loops. |
+
+collab-cluster-data-manager
+---------------------------
+
+Decides what one [collab-cluster-node] holds. It runs next to its node (in the
+same container) and talks to it at `127.0.0.1:8001`. Every 10 seconds it:
+
+1. follows the local node's `/holdings`, judges each dataset there once from
+   its `.torrent` (fetched from the local node), and `POST /remove`s what the
+   policy doesn't want (which deletes the node's downloaded copy);
+2. follows every peer's `/holdings` from the moment it first sees the peer
+   (its cursor from `/stats`): each `downloading` row is a dataset arriving
+   there. It fetches that `.torrent` from the peer, judges it, and
+   `POST /add`s it to the local node if the policy wants it.
+
+A dataset's metadata is the `collab-cluster-torrentizer-metadata` key in its
+`.torrent`.
+
+The policy is a TOML file of rules; the first match decides, and a dataset no
+rule matches is not held:
+
+```toml
+[[rule]]
+collection = "sentinel-2-l2a"
+bbox_intersects = [5.9, 45.8, 10.5, 47.8]   # west, south, east, north
+max_cloud_cover = 30
+retain_hours = 48                           # from sensing time; omit to keep forever
+```
+
+Every condition is optional. `retain_hours` makes a rolling archive: a
+dataset is removed once its sensing time (STAC `datetime`) is that far in the
+past, and isn't taken in the first place if it already is.
+
+The policy applies to **everything the node holds, whoever added it** --
+including what a publisher delivered to it, and what you `control.py add`ed
+by hand. Only datasets without torrentizer metadata (e.g. ones
+`control.py publish`ed) are left alone. A dataset whose last copy is removed
+has left the swarm; with the same rolling policy on every node, that is how
+the archive rolls.
+
+Nothing is kept about the swarm as a whole: the local node is the authority on
+what it holds. In memory are until when to hold each locally held dataset, a
+cursor per peer, and for 48 hours the datasets judged unwanted, so a dataset
+arriving at further nodes isn't fetched and judged again. A restart costs one
+local `.torrent` fetch per dataset the node holds.
+
+The only thing persisted is the peers' cursors, in
+`data-manager-cursors.json` (in the working directory). After a restart each
+peer's stream hands over exactly what arrived while the manager was down. A
+cursor is saved only once everything before it has been judged. How long an
+outage this covers is bounded by the node's change log (`CHANGE_LOG_LIMIT`,
+10,000 transitions -- a few hours at 20k datasets a day). The node never
+answers a cursor it can't fully cover, and the manager logs a warning whenever
+a peer can't answer from its cursor -- after a longer outage, a peer restart,
+or a peer it couldn't reach for too long -- and follows that peer from now on.
+
+For that, or a first start, `BACKFILL=1` judges everything each peer already
+holds when first seen, ignoring saved cursors. Each dataset's `.torrent` is
+fetched once, however many peers hold it. A dataset someone removes from the
+local node by hand stays removed.
+
+Fetching `.torrent`s gets at most 5 seconds per tick for each of the two
+directions, so a large backlog (a backfill, a restart of a node holding a lot)
+is worked through over several ticks without holding up the rest.
+
+The node needs to be recent enough that `/remove` deletes the downloaded
+copy; older ones keep the files and never free the space.
+
+### Limitations: datasets it can miss
+
+Removal is reliable: what the local node holds is always listed in full and
+judged. **Taking is best effort.** The manager sees a dataset only as an
+arrival in some peer's holdings stream, and judges each arrival once. A
+dataset the policy wants can therefore never reach this node, and nothing
+retries it. That happens when:
+
+- **a peer can't answer from its cursor** -- the manager was down longer than
+  that peer's change log reaches, the peer restarted, or the manager couldn't
+  reach it for too long. Logged as a warning; what arrived there in between
+  is never judged.
+- **the peer drops the dataset before it's judged**, e.g. during a backlog.
+- **the local node rejects the `/add`** (logged as an error). It's retried
+  only if the dataset arrives at another node later.
+- **the dataset is on a node the local node doesn't see** (`/peers` comes from
+  the multicast beacon).
+- **the policy is changed.** It applies to what the local node holds and to
+  arrivals from then on, but datasets that already arrived and were judged
+  under the old policy aren't looked at again.
+
+In each case a dataset is only missed if it doesn't arrive at another node
+later -- every new copy elsewhere is a new arrival. `BACKFILL=1` is the
+recovery: it judges everything the peers hold. But it's manual, and costs one
+`.torrent` fetch per dataset in the swarm.
+
+That's acceptable for a prototype. Something meant for production would
+need, for example:
+
+- **a source of new datasets that doesn't forget**: a durable, ordered feed
+  whose position survives restarts on both sides, e.g. a change log on the
+  node that's persisted and retained by time rather than by count, or the
+  manager following the same upstream feed the torrentizer reads
+  (Jetstream, with its own cursor) instead of the nodes;
+- **periodic reconciliation instead of a manual backfill**, with a persisted
+  metadata cache so that comparing against the whole swarm stays cheap;
+- **metrics and alerts** for gaps, rejected adds and backlog size, rather
+  than log lines.
+
+### Setup & run
+
+```console
+> uv sync
+> cp deploy/data-manager-policy.example.toml data-manager-policy.toml   # then edit
+> uv run collab-cluster-data-manager
+```
+
+`POLICY_PATH` overrides where the policy is read from. It's read once at
+startup -- restart to apply a change. `BACKFILL=1` turns on backfill (see
+above). As a background service:
+`./deploy/service.sh data-manager install` (same mechanics as above).
+
+### Files
+
+| File | Role |
+|---|---|
+| `policy.py` | Read a `.torrent`'s metadata, load the rules, decide. Pure. |
+| `swarm.py` | The node API calls it uses. |
+| `reconcile.py` | Follow the local node and what arrives at peers; add and remove. |
+| `cli.py` | Wires it together, loops. |
+
+Tests
+-----
 
 ```console
 > uv run pytest
@@ -71,17 +211,6 @@ collab-cluster-torrentizer's `deploy/service.sh`.
 `test_web_seed.py` has libtorrent download items from the publisher's HTTP
 server as a web seed; its multi-file case is skipped on libtorrent older than
 2.1.2. The rest are unit tests without libtorrent.
-
-### Files
-
-| File | Role |
-|---|---|
-| `config.py` | `Config.from_env()`. |
-| `http_server.py` | Read-only file server over the watched directory, with byte ranges. |
-| `torrent.py` | A `.torrent`'s v2 info-hash and shape, without libtorrent. |
-| `state.py` | sqlite ledger of what's been notified. |
-| `reconcile.py` | Find new `.torrent` files, notify the target node. |
-| `cli.py` | Wires it together, loops. |
 
 License
 -------

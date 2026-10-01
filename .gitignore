@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 deploy/.env
 deploy/collab-cluster-publisher.service
+deploy/collab-cluster-data-manager.service
+data-manager-policy.toml
+data-manager-cursors.json

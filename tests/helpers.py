@@ -34,3 +34,25 @@ def write_torrent(path: Path, name: str, files: dict[str, int]) -> str:
     info = {"name": name, "meta version": 2, "piece length": 16384, "file tree": tree}
     path.write_bytes(bencode({"info": info, "piece layers": {}}))
     return hashlib.sha256(bencode(info)).hexdigest()
+
+
+def torrent_bytes(name: str, metadata: dict | None = None) -> tuple[str, bytes]:
+    """A v2 .torrent as bytes, carrying collab-cluster-torrentizer's metadata
+    key when given. Returns (info_hash, bytes)."""
+    import json
+    info = {"name": name, "meta version": 2, "piece length": 16384,
+            "file tree": {"image.tif": _leaf(5)}}
+    top = {"info": info, "piece layers": {}}
+    if metadata is not None:
+        top["collab-cluster-torrentizer-metadata"] = json.dumps(metadata)
+    return hashlib.sha256(bencode(info)).hexdigest(), bencode(top)
+
+
+def stac_metadata(sensing_time: str, collection: str = "sentinel-2-l2a",
+                  bbox: list | None = None, cloud_cover: float | None = 10) -> dict:
+    properties = {"datetime": sensing_time}
+    if cloud_cover is not None:
+        properties["eo:cloud_cover"] = cloud_cover
+    return {"stac": {"id": "x", "collection": collection,
+                     "bbox": bbox or [7.0, 46.0, 8.0, 47.0], "properties": properties},
+            "packagedAt": sensing_time}

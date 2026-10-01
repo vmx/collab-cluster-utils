@@ -16,6 +16,7 @@ dev = [
 
 [project.scripts]
 collab-cluster-publisher = "collab_cluster_utils.publisher.cli:main"
+collab-cluster-data-manager = "collab_cluster_utils.data_manager.cli:main"
 
 [build-system]
 requires = ["hatchling"]

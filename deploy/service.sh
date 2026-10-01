@@ -1,30 +1,34 @@
 #!/usr/bin/env bash
-# Manages collab-cluster-publisher as a persistent systemd --user unit
-# that survives reboots/re-logins.
+# Manages one of this repo's tools (publisher or data-manager) as a
+# persistent systemd --user unit that survives reboots/re-logins.
 #
 # The real unit file is generated from
-# collab-cluster-publisher.service.template and kept in this repo
-# (deploy/collab-cluster-publisher.service, gitignored -- it embeds this
+# collab-cluster-<tool>.service.template and kept in this repo
+# (deploy/collab-cluster-<tool>.service, gitignored -- it embeds this
 # machine's absolute repo path). `systemctl --user link` only adds a
 # symlink under ~/.config/systemd/user pointing back at it, so nothing
 # but that symlink is written outside the project directory.
 #
 # To just run it in the current terminal session instead, use
-# `uv run collab-cluster-publisher` directly.
+# `uv run collab-cluster-<tool>` directly.
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-unit=collab-cluster-publisher
-template="$repo_dir/deploy/collab-cluster-publisher.service.template"
-unit_file="$repo_dir/deploy/collab-cluster-publisher.service"
 
 usage() {
-    echo "usage: $0 {install|uninstall|start|stop|restart|status|logs}" >&2
+    echo "usage: $0 {publisher|data-manager} {install|uninstall|start|stop|restart|status|logs}" >&2
     exit 1
 }
 
+case "${1:-}" in
+    publisher|data-manager) unit="collab-cluster-$1" ;;
+    *) usage ;;
+esac
+template="$repo_dir/deploy/$unit.service.template"
+unit_file="$repo_dir/deploy/$unit.service"
+
 require_venv() {
-    if [ ! -x "$repo_dir/.venv/bin/collab-cluster-publisher" ]; then
+    if [ ! -x "$repo_dir/.venv/bin/$unit" ]; then
         echo "error: $repo_dir/.venv not found -- run 'uv sync' first" >&2
         exit 1
     fi
@@ -63,7 +67,7 @@ uninstall_unit() {
     echo "uninstalled"
 }
 
-case "${1:-}" in
+case "${2:-}" in
     install) install_unit ;;
     uninstall) uninstall_unit ;;
     start) systemctl --user start "$unit" ;;

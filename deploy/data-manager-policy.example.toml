@@ -1,0 +1,13 @@
+# Copy to data-manager-policy.toml in the repo root (gitignored) and adjust,
+# or point POLICY_PATH at it. Read once at startup: restart to apply changes.
+#
+# Rules are tried in order and the first match decides; a dataset no rule
+# matches is not held -- and removed if it is. That applies to everything
+# the node holds, whoever added it, except datasets without torrentizer
+# metadata, which are left alone. Every condition is optional.
+
+[[rule]]
+collection = "sentinel-2-l2a"
+bbox_intersects = [5.9, 45.8, 10.5, 47.8]   # west, south, east, north
+max_cloud_cover = 30
+retain_hours = 48                           # from sensing time; omit to keep forever
