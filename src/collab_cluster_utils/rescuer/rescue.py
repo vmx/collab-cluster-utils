@@ -2,16 +2,17 @@
 
 Every round the collector's index (its /api/rescue) hands over a random sample
 of the rarest datasets this node doesn't hold, and this node's holdings with
-the most copies. The node takes what fits in its budget, and when the budget is
-full, swaps a holding for a clearly rarer dataset -- but only a holding that
-keeps at least FLOOR complete copies without this one. So a dataset that
-reached FLOOR copies is never let go of again, and two copies are what every
-rescue node works towards.
+the most copies. A dataset with FLOOR copies has enough: it is never copied
+again, and never let go of again. One with fewer is taken if it fits in the
+budget; when the budget is full, in exchange for a holding that keeps FLOOR
+complete copies without this one. So rescue nodes work towards exactly two
+copies of everything, and leave space empty rather than make a third.
 
 Nothing is kept between rounds: the local node says what it holds, the index
 what everybody else does. Several rescue nodes need no coordination: they're
 handed different random samples, and a dataset two of them happen to take
-ends up with copies to spare -- the first thing either lets go of.
+at the same moment ends up with a copy to spare -- the first thing either
+lets go of.
 
 Copies on rolling archives count like any other. A dataset whose spare copies
 were there dips below FLOOR when they expire; it is then among the rarest, and
@@ -31,8 +32,7 @@ from .. import swarm
 
 logger = logging.getLogger(__name__)
 
-FLOOR = 2           # complete copies a rescue node never takes a dataset below
-MARGIN = 2          # a swap must be for a dataset with this many fewer copies
+FLOOR = 2           # copied up to, and never let go of below
 MAX_DOWNLOADS = 4   # rescues in flight at once
 SAMPLE = 50         # candidates (and evictable holdings) asked for per round
 
@@ -58,14 +58,15 @@ def plan(key: str, candidates: list[dict], evictable: list[dict],
         remove.append(e["info_hash"])
         used -= e["total_size"]
     slots = MAX_DOWNLOADS - downloading
-    for cand in sorted(candidates, key=_copies):
+    for cand in candidates:
         if slots <= 0:
             break
-        if not cand["complete"] or key in cand["complete"] or key in cand["partial"]:
+        if (not cand["complete"] or _copies(cand) >= FLOOR
+                or key in cand["complete"] or key in cand["partial"]):
             continue
         size, freed, evict = cand["total_size"], 0, []
         for e in pool:                      # most copies first
-            if used + size - freed <= budget or _copies(cand) + MARGIN > len(e["complete"]):
+            if used + size - freed <= budget:
                 break
             evict.append(e)
             freed += e["total_size"]

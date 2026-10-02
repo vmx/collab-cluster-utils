@@ -240,18 +240,19 @@ minute (jittered, so rescuers don't act in step) it:
 1. gets `GET /api/rescue?node=<its node key>` from the collector: a random
    sample of the rarest datasets the node doesn't hold, and the node's own
    holdings with the most copies;
-2. `POST /add`s the rarest that fit into its budget, at most 4 downloading at
-   once;
+2. `POST /add`s those with **fewer than two copies** that fit into its budget,
+   at most 4 downloading at once;
 3. when the budget is full, swaps: it `POST /remove`s a holding to make room
-   for a clearly rarer dataset (2 copies fewer), but only a holding that keeps
-   **at least two complete copies** without it.
+   for one, but only a holding that keeps **at least two complete copies**
+   without it.
 
-So rescue nodes work towards two copies of everything. A dataset that reached
-two is never let go of again, and one that has fewer is what they take first.
-A download under way counts as a copy, so a dataset being rescued elsewhere
-isn't taken again. Several rescuers need no coordination: they're handed
-different random samples, and a dataset two of them happen to take has a copy
-to spare, the first thing either lets go of.
+So rescue nodes work towards exactly two copies of everything. A dataset with
+two is never copied again, nor let go of again; space nobody needs for that
+stays empty. A download under way counts as a copy, so a dataset being
+rescued elsewhere isn't taken again. Several rescuers need no coordination:
+they're handed different random samples, and a dataset two of them happen to
+take at the same moment has a copy to spare, the first thing either lets go
+of.
 
 Nothing is kept between rounds. The node says what it holds, and the collector
 says what everyone else holds.
@@ -265,8 +266,8 @@ says what everyone else holds.
   take it from three copies to one. It's then among the rarest again.
 - **Without the collector it pauses.** It keeps what it has and takes nothing.
 - **Space limits it.** If the rescue nodes together have less space than
-  the archive, not everything reaches two copies. They then hold the rarest
-  datasets they've found, and swap only for even rarer ones.
+  the archive, not everything reaches two copies. Full rescuers then only
+  make room by letting go of copies to spare, never of a second copy.
 
 ### Setup & run
 

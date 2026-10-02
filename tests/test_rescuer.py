@@ -25,9 +25,9 @@ def test_takes_what_fits():
     assert plan(ME, candidates, [], used=0, budget=20, downloading=0) == Plan([], ["a", "b"])
 
 
-def test_rarest_first():
-    candidates = [ds("two", ["x", "y"]), ds("one", ["x"])]
-    assert plan(ME, candidates, [], used=0, budget=10, downloading=0).add == ["one"]
+def test_never_copies_a_dataset_with_two_copies():
+    candidates = [ds("two", ["x", "y"]), ds("coming", ["x"], ["y"])]
+    assert plan(ME, candidates, [], used=0, budget=100, downloading=0) == Plan([], [])
 
 
 def test_skips_what_has_no_complete_copy_or_is_ours():
@@ -53,9 +53,8 @@ def test_never_takes_a_holding_below_the_floor():
                 downloading=0) == Plan([], [])
 
 
-def test_swaps_only_for_a_clearly_rarer_dataset():
+def test_does_not_swap_for_a_dataset_being_rescued_elsewhere():
     evictable = [ds("three", [ME, "x", "y"])]
-    # Two copies, one of them still downloading elsewhere: not rare enough.
     candidates = [ds("being-rescued", ["x"], ["y"])]
     assert plan(ME, candidates, evictable, used=10, budget=10, downloading=0) == Plan([], [])
 
