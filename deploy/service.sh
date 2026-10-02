@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Manages one of this repo's tools (publisher or data-manager) as a
+# Manages one of this repo's tools (publisher, data-manager or rescuer) as a
 # persistent systemd --user unit that survives reboots/re-logins.
 #
 # The real unit file is generated from
@@ -16,12 +16,12 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
-    echo "usage: $0 {publisher|data-manager} {install|uninstall|start|stop|restart|status|logs}" >&2
+    echo "usage: $0 {publisher|data-manager|rescuer} {install|uninstall|start|stop|restart|status|logs}" >&2
     exit 1
 }
 
 case "${1:-}" in
-    publisher|data-manager) unit="collab-cluster-$1" ;;
+    publisher|data-manager|rescuer) unit="collab-cluster-$1" ;;
     *) usage ;;
 esac
 template="$repo_dir/deploy/$unit.service.template"

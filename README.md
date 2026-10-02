@@ -220,9 +220,78 @@ it by hand, push the policy to
 | File | Role |
 |---|---|
 | `policy.py` | Read a `.torrent`'s metadata, load the rules, decide. Pure. |
-| `swarm.py` | The node API calls it uses. |
 | `reconcile.py` | Follow the local node and what arrives at peers; add and remove. |
 | `cli.py` | Wires it together, loops. |
+| `../swarm.py` | The node API calls it uses (shared with the rescuer). |
+
+collab-cluster-rescuer
+----------------------
+
+Fills a node's spare space with the swarm's rarest datasets, so that old data
+that has left the rolling archives still has copies beyond the full archive.
+It's for people with space to give: a rescue node runs the rescuer instead of
+a data manager, and joins or leaves whenever its owner likes. Each one is best
+effort, and different rescue nodes end up holding different parts.
+
+It runs next to its node (`127.0.0.1:8001`) and asks a [collab-cluster-node]
+collector, whose index knows how many copies of everything exist. About once a
+minute (jittered, so rescuers don't act in step) it:
+
+1. gets `GET /api/rescue?node=<its node key>` from the collector: a random
+   sample of the rarest datasets the node doesn't hold, and the node's own
+   holdings with the most copies;
+2. `POST /add`s the rarest that fit into its budget, at most 4 downloading at
+   once;
+3. when the budget is full, swaps: it `POST /remove`s a holding to make room
+   for a clearly rarer dataset (2 copies fewer), but only a holding that keeps
+   **at least two complete copies** without it.
+
+So rescue nodes work towards two copies of everything. A dataset that reached
+two is never let go of again, and one that has fewer is what they take first.
+A download under way counts as a copy, so a dataset being rescued elsewhere
+isn't taken again. Several rescuers need no coordination: they're handed
+different random samples, and a dataset two of them happen to take has a copy
+to spare, the first thing either lets go of.
+
+Nothing is kept between rounds. The node says what it holds, and the collector
+says what everyone else holds.
+
+### Limitations
+
+- **Copies on rolling archives count like any other.** A dataset with three
+  copies, one of them on a rolling archive, may be let go of. When that copy
+  expires, the dataset dips to one copy until a rescuer takes it again.
+- **Two rescuers can let go of the same dataset in the same moment**, and
+  take it from three copies to one. It's then among the rarest again.
+- **Without the collector it pauses.** It keeps what it has and takes nothing.
+- **Space limits it.** If the rescue nodes together have less space than
+  the archive, not everything reaches two copies. They then hold the rarest
+  datasets they've found, and swap only for even rarer ones.
+
+### Setup & run
+
+```console
+> uv sync
+> RESCUE_BYTES=2000000000000 COLLECTOR=10.0.0.2 uv run collab-cluster-rescuer
+```
+
+`RESCUE_BYTES` is how much the node may hold, everything on it included.
+Lowering it makes the rescuer let go of holdings with copies to spare until
+it's under. `COLLECTOR` is `host[:port]`, and the port defaults to 8100. As a
+background service: put both in `deploy/.env`, then
+`./deploy/service.sh rescuer install`.
+
+In a node's Incus container, put both settings in
+`/home/debian/collab-cluster-utils/rescuer.env`, copy
+`deploy/incus/collab-cluster-rescuer.service` to `~/.config/systemd/user/`,
+and `systemctl --user enable --now collab-cluster-rescuer`, all as `debian`.
+
+### Files
+
+| File | Role |
+|---|---|
+| `rescue.py` | What to take and let go of (`plan()`, pure), and a round of it. |
+| `cli.py` | Settings, loops. |
 
 Tests
 -----

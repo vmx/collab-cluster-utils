@@ -1,4 +1,4 @@
-"""The parts of a collab-cluster node's HTTP API the manager uses: who the
+"""The parts of a collab-cluster node's HTTP API the tools here use: who the
 peers are, what each node holds or newly takes (followed by cursor), a
 dataset's .torrent, and telling the local node to add or remove one. Standard library only.
 """
@@ -40,6 +40,11 @@ def cursor(base: str) -> str:
     """Where the node's holdings stream is now: follow it from here to see
     only what changes from now on."""
     return json.loads(_get(f"{base}/stats"))["cursor"]
+
+
+def node_key(base: str) -> str:
+    """The node's swarm-wide identity."""
+    return json.loads(_get(f"{base}/stats"))["node_key"]
 
 
 def holdings(base: str, cursor: str | None) -> dict:

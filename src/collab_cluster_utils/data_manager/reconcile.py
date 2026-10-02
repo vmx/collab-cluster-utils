@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..bencode import entries
-from . import swarm
+from .. import swarm
 from .policy import Rule, hold_until, read_metadata
 
 logger = logging.getLogger(__name__)

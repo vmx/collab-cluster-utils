@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from collab_cluster_utils.data_manager import reconcile, swarm
+from collab_cluster_utils import swarm
+from collab_cluster_utils.data_manager import reconcile
 from collab_cluster_utils.data_manager.policy import Rule
 
 from .helpers import stac_metadata, torrent_bytes

@@ -1,0 +1,19 @@
+# systemd --user unit for running the rescuer in a collab-cluster-node
+# container on Incus, instead of a data manager. Like that one's unit, the
+# collab-cluster profile copies it into ~/.config/systemd/user/; it is only
+# enabled on a node meant to rescue, whose settings are in rescuer.env in the
+# checkout (RESCUE_BYTES=..., COLLECTOR=...).
+
+[Unit]
+Description=collab-cluster-rescuer (fills a node's spare space with rare datasets)
+
+[Service]
+WorkingDirectory=%h/collab-cluster-utils
+EnvironmentFile=%h/collab-cluster-utils/rescuer.env
+Environment=PYTHONPATH=src
+ExecStart=python3 -m collab_cluster_utils.rescuer.cli
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

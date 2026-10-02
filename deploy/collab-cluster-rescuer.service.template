@@ -1,0 +1,19 @@
+# Template for the persistent systemd --user unit. service.sh fills in
+# __REPO_DIR__ and writes the result to collab-cluster-rescuer.service
+# (gitignored) next to this file.
+
+[Unit]
+Description=collab-cluster-rescuer (fills a node's spare space with rare datasets)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=__REPO_DIR__
+EnvironmentFile=-__REPO_DIR__/deploy/.env
+ExecStart=__REPO_DIR__/.venv/bin/collab-cluster-rescuer
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
