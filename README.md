@@ -123,7 +123,7 @@ The only thing persisted is the peers' cursors, in
 peer's stream hands over exactly what arrived while the manager was down. A
 cursor is saved only once everything before it has been judged. How long an
 outage this covers is bounded by the node's change log (`CHANGE_LOG_LIMIT`,
-10,000 transitions -- a few hours at 20k datasets a day). The node never
+100,000 transitions -- more than a day at 20k datasets a day). The node never
 answers a cursor it can't fully cover, and the manager logs a warning whenever
 a peer can't answer from its cursor -- after a longer outage, a peer restart,
 or a peer it couldn't reach for too long -- and follows that peer from now on.
