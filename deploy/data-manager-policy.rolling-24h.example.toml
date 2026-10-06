@@ -1,0 +1,11 @@
+# A rolling archive of the last 24 hours: every dataset is held until its
+# sensing time is 24 hours in the past, then removed. Datasets that are
+# already older than that when they arrive aren't taken at all.
+#
+# The window must exceed the delay until datasets reach the swarm.
+#
+# With this policy on every node, a dataset leaves the swarm 24 hours after
+# it was sensed. See data-manager-policy.example.toml for how rules work.
+
+[[rule]]
+retain_hours = 24

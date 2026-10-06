@@ -1,0 +1,12 @@
+# Keep everything from South America, forever; hold nothing else.
+#
+# The box reaches from west of the Galápagos to east of the South Sandwich
+# Islands, and from 13° N south to 60° S. Together with the other continent
+# examples it covers the whole globe, so with each of them on some node,
+# every dataset is held somewhere. A dataset matches if its footprint
+# intersects the box at all, so this also keeps southern Central America
+# and the southern Caribbean. See data-manager-policy.example.toml for how
+# rules work.
+
+[[rule]]
+bbox_intersects = [-102.0, -60.0, -20.0, 13.0]   # west, south, east, north

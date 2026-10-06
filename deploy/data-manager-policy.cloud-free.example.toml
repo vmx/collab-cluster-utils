@@ -1,0 +1,8 @@
+# Keep nearly cloud-free images, forever; hold nothing else.
+#
+# A dataset matches if its eo:cloud_cover is at most 5 percent. Datasets
+# without a cloud cover, such as Sentinel-1 radar, never match, so they're
+# not held. See data-manager-policy.example.toml for how rules work.
+
+[[rule]]
+max_cloud_cover = 5   # percent

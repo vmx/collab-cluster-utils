@@ -1,0 +1,16 @@
+# Keep everything from Oceania, forever; hold nothing else.
+#
+# Australia, New Zealand and the Pacific islands, from west of the Cocos
+# Islands to east of Easter Island, and from 60° S north to Hawaii. The
+# Pacific spans the antimeridian, which a box can't cross, so there's a box
+# on either side. Together with the other continent examples it covers the
+# whole globe, so with each of them on some node, every dataset is held
+# somewhere. A dataset matches if its footprint intersects a box at all, so
+# this also keeps the Philippines and most of Indonesia. See
+# data-manager-policy.example.toml for how rules work.
+
+[[rule]]
+bbox_intersects = [93.0, -60.0, 180.0, 29.0]   # west, south, east, north
+
+[[rule]]
+bbox_intersects = [-180.0, -60.0, -102.0, 29.0]

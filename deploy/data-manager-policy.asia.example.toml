@@ -1,0 +1,16 @@
+# Keep everything from Asia, forever; hold nothing else.
+#
+# The main box reaches from Turkey to the antimeridian, and from Timor to
+# the North Pole. Boxes can't cross the antimeridian, so the eastern tip of
+# Siberia gets a box of its own. Together with the other continent examples
+# it covers the whole globe, so with each of them on some node, every
+# dataset is held somewhere. A dataset matches if its footprint intersects
+# a box at all, so this also keeps eastern Europe, north-east Africa,
+# northern Australia and the western Pacific. See
+# data-manager-policy.example.toml for how rules work.
+
+[[rule]]
+bbox_intersects = [25.0, -11.5, 180.0, 90.0]   # west, south, east, north
+
+[[rule]]
+bbox_intersects = [-180.0, 62.0, -168.0, 72.0]   # Chukotka

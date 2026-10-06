@@ -187,9 +187,12 @@ need, for example:
 > uv run collab-cluster-data-manager
 ```
 
-`deploy/` has more examples to start from: a six-hour rolling archive
-(`data-manager-policy.rolling-6h.example.toml`) and keeping everything from
-Europe (`data-manager-policy.europe.example.toml`).
+`deploy/` has more examples to start from: rolling archives of six and 24
+hours (`data-manager-policy.rolling-{6h,24h}.example.toml`), keeping
+everything from a continent
+(`data-manager-policy.{europe,africa,asia,north-america,south-america,oceania,antarctica}.example.toml`)
+and keeping nearly cloud-free images
+(`data-manager-policy.cloud-free.example.toml`).
 
 `POLICY_PATH` overrides where the policy is read from. It's read once at
 startup -- restart to apply a change. `BACKFILL=1` turns on backfill (see

@@ -1,0 +1,17 @@
+# Keep everything from North America, forever; hold nothing else.
+#
+# The main box reaches from the antimeridian to Greenland's east coast, and
+# from 7° N to the North Pole, taking in the northern Pacific and the
+# western Atlantic. Boxes can't cross the antimeridian, so the western
+# Aleutians get a box of their own. Together with the other continent
+# examples it covers the whole globe, so with each of them on some node,
+# every dataset is held somewhere. A dataset matches if its footprint
+# intersects a box at all, so this also keeps Hawaii, parts of the
+# Caribbean coast of South America and the Russian Far East. See
+# data-manager-policy.example.toml for how rules work.
+
+[[rule]]
+bbox_intersects = [-180.0, 7.0, -11.0, 90.0]   # west, south, east, north
+
+[[rule]]
+bbox_intersects = [172.0, 51.0, 180.0, 54.0]   # western Aleutians

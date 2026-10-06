@@ -1,0 +1,18 @@
+# Keep everything from Antarctica and the southern Indian Ocean, forever;
+# hold nothing else.
+#
+# The first box is everything south of 60° S, which includes the South
+# Shetland and South Orkney Islands. The second is the southern Indian
+# Ocean between Africa and Oceania, with Kerguelen, Heard and McDonald, and
+# Amsterdam and St Paul. Together with the other continent examples it
+# covers the whole globe, so with each of them on some node, every dataset
+# is held somewhere. Sentinel-2 images Antarctica only in a yearly campaign
+# during the austral summer, so expect a node with this policy to take
+# little for most of the year. See data-manager-policy.example.toml for how
+# rules work.
+
+[[rule]]
+bbox_intersects = [-180.0, -90.0, 180.0, -60.0]   # west, south, east, north
+
+[[rule]]
+bbox_intersects = [64.0, -60.0, 93.0, -11.5]   # southern Indian Ocean
